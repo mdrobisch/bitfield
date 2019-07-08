@@ -1,4 +1,64 @@
-from .tspan import tspan
+import re
+trans = {
+    '<o>': {'add': {'text-decoration': 'overline'}},
+    '</o>': {'del': {'text-decoration': 'overline'}},
+    '<ins>': {'add': {'text-decoration': 'underline'}},
+    '</ins>': {'del': {'text-decoration': 'underline'}},
+    '<s>': {'add': {'text-decoration': 'line-through'}},
+    '</s>': {'del': {'text-decoration': 'line-through'}},
+    '<b>': {'add': {'font-weight': 'bold'}},
+    '</b>': {'del': {'font-weight': 'bold'}},
+    '<i>': {'add': {'font-style': 'italic'}},
+    '</i>': {'del': {'font-style': 'italic'}},
+    '<sub>': {'add': {'baseline-shift': 'sub', 'font-size': '.7em'}},
+    '</sub>': {'del': {'baseline-shift': 'sub', 'font-size': '.7em'}},
+    '<sup>': {'add': {'baseline-shift': 'super', 'font-size': '.7em'}},
+    '</sup>': {'del': {'baseline-shift': 'super', 'font-size': '.7em'}},
+    '<tt>': {'add': {'font-family': 'monospace'}},
+    '</tt>': {'del': {'font-family': 'monospace'}}
+}
+pattern = '|'.join(re.escape(k) for k in trans.keys())
+
+def dump(state):
+    att = {}
+    for k, v in state.items():
+        for kk, vv in v.items():
+            if vv == True:
+                att[k] = kk
+    return att
+
+
+def tspan(str):
+    state = {
+        'text-decoration': {},
+        'font-weight': {},
+        'font-style': {},
+        'baseline-shift': {},
+        'font-size': {},
+        'font-family': {}
+    }
+
+    res = []
+
+    while True:
+        m = re.search(pattern, str, flags=re.IGNORECASE | re.UNICODE)
+        if m is None:
+            res.append(['tspan', dump(state), str])
+            break
+        if m.start(0) > 0:
+            res.append(['tspan', dump(state), str[:m.start(0)]])
+        tag = m.group(0)
+        cmd = trans[tag]
+        if 'add' in cmd:
+            for k, v in cmd['add'].items():
+                state[k][v] = True
+        if 'del' in cmd:
+            for k, v in cmd['del'].items():
+                del state[k][v]
+        str = str[m.end(0):]
+        if len(str) == 0:
+            break
+    return res
 
 
 def t(x, y):
@@ -20,40 +80,86 @@ def typeStyle(t):
     else:
         return ''
 
+def jsonml_stringify(res):
+    if res is None:
+        return ''
+    tag = res[0]
+    attributes = ' '.join('{}="{}"'.format(k, v) for k, v in res[1].items())
+    if len(res) > 2 and isinstance(res[2], str):
+        content = res[2]
+    else:
+        content = ''.join(jsonml_stringify(child) for child in res[2:])
+    if len(content) > 0:
+        return '<{0} {1}>{2}</{0}>'.format(tag, attributes, content)
+    else:
+        return '<{0} {1}/>'.format(tag, attributes)
+
 
 class Renderer(object):
-    def __init__(self,
-                 vspace=80,
-                 hspace=640,
-                 lanes=2,
-                 bits=32,
-                 fontsize=14,
-                 bigendian=False,
-                 fontfamily='sans-serif',
-                 fontweight='normal'):
-        if vspace <= 19:
-            raise ValueError(
-                'vspace must be greater than 19, got {}.'.format(vspace))
-        if hspace <= 39:
-            raise ValueError(
-                'hspace must be greater than 39, got {}.'.format(hspace))
-        if lanes <= 0:
-            raise ValueError(
-                'lanes must be greater than 0, got {}.'.format(lanes))
-        if bits <= 4:
-            raise ValueError(
-                'bits must be greater than 4, got {}.'.format(bits))
-        if fontsize <= 5:
-            raise ValueError(
-                'fontsize must be greater than 5, got {}.'.format(fontsize))
-        self.vspace = vspace
-        self.hspace = hspace
-        self.lanes = lanes
-        self.bits = bits
-        self.fontsize = fontsize
-        self.bigendian = bigendian
-        self.fontfamily = fontfamily
-        self.fontweight = fontweight
+    def __init__(self, options):
+        defaults = {
+            "vspace": 80,
+            "hspace": 640,
+            "lanes": 2,
+            "bits": 32,
+            "fontsize": 14,
+            "bigendian": False,
+            "fontfamily": 'sans-serif',
+            "fontweight": 'normal',
+        }
+
+        if 'bigendian' not in options:
+            options['bigendian'] = defaults['bigendian']
+
+        if 'fontfamily' not in options:
+            options['fontfamily'] = defaults['fontfamily']
+
+        if 'fontweight' not in options:
+            options['fontweight'] = defaults['fontweight']
+
+        if 'vspace' not in options:
+            options['vspace'] = defaults['vspace']
+        else:
+            if options['vspace'] <= 19:
+                raise ValueError(
+                    'vspace must be greater than 19, got {}.'.format(options['vspace']))
+
+        if 'hspace' not in options:
+            options['hspace'] = defaults['hspace']
+        else:
+            if options['vspace'] <= 39:
+                raise ValueError(
+                    'hspace must be greater than 39, got {}.'.format(options['hspace']))
+
+        if 'lanes' not in options:
+            options['lanes'] = defaults['lanes']
+        else:
+            if options['lanes'] <= 0:
+                raise ValueError(
+                    'lanes must be greater than 0, got {}.'.format(options['lanes']))
+
+        if 'bits' not in options:
+            options['bits'] = defaults['bits']
+        else:
+            if options['bits'] <= 4:
+                raise ValueError(
+                    'bits must be greater than 4, got {}.'.format(options['bits']))
+
+        if 'fontsize' not in options:
+            options['fontsize'] = defaults['fontsize']
+        else:
+            if options['fontsize'] <= 5:
+                raise ValueError(
+                    'fontsize must be greater than 5, got {}.'.format(options['fontsize']))
+
+        self.vspace = options['vspace']
+        self.hspace = options['hspace']
+        self.lanes = options['lanes']
+        self.bits = options['bits']
+        self.fontsize = options['fontsize']
+        self.bigendian = options['bigendian']
+        self.fontfamily = options['fontfamily']
+        self.fontweight = options['fontweight']
 
     def render(self, desc):
         res = ['svg', {
@@ -215,6 +321,10 @@ class Renderer(object):
         return res
 
 
-def render(desc, **kwargs):
-    renderer = Renderer(**kwargs)
+def plotBitfield(desc, options):
+    renderer = Renderer(options)
+    return jsonml_stringify(renderer.render(desc))
+
+def renderBitfield(desc, options):
+    renderer = Renderer(options)
     return renderer.render(desc)
